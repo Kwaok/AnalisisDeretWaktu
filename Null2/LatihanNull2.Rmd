@@ -1,2 +1,13 @@
 ### Header 3
+
 # comment test
+
+![](images/Choose wisely.png)
+
+# new comment
+```{r}
+vec = c(1, 2, 3)
+vec2 = 2*vec
+print(vec2)
+```
+
