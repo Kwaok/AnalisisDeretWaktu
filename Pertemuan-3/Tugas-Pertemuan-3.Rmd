@@ -1,0 +1,271 @@
+---
+title: "Tugas-Pertemuan-3"
+author: "Siti Zahra Muthmainnah"
+date: "2026-09-09"
+output:
+  html_document: 
+    theme: lumen
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    code_folding: hide
+  pdf_document: default
+  word_document: default
+---
+
+### Packages
+```{r setup, message=FALSE, warning=FALSE}
+#install.packages(c("dLagM", "dynlm", "MLmetrics", "lmtest", "car")) # Run jika belum meng-install
+
+library(dLagM)
+library(dynlm)
+library(MLmetrics)
+library(lmtest)
+library(car)
+```
+
+### Data
+```{r}
+data = read.csv("D:\\IPB\\5. Semester 5\\ADW\\Prak3\\NewDelhi_Air_quality.csv")
+#nrow(data)
+train <- data[1:58,]
+test <- data[59:72,]
+
+# Mengubah format data menjadi objek Time Series (ts)
+train.ts <- ts(train)
+test.ts <- ts(test)
+data.ts <- ts(data)
+```
+
+### Koyck
+#### Pemodelan
+```{r}
+model.koyck <- koyckDlm(x = train$pm10, y = train$AQI)
+summary(model.koyck)
+```
+
+#### Penentuan h Optimum
+```{r}
+# Maksimal horizon sesuai panjang data test
+max_h <- nrow(test) # 14
+
+# Dataframe penampung hasil evaluasi Koyck
+eval_koyck <- data.frame(
+  h = integer(),
+  MAPE_Koyck = numeric()
+)
+
+# Loop untuk mengevaluasi Koyck di setiap horizon h
+for (h_i in 1:max_h) {
+  
+  # Forecast Koyck sampai langkah ke-h_i
+  # Masukkan x dari test$pm10 sebanyak h_i pertama
+  fore_temp <- forecast(model = model.koyck, x = test$pm10[1:h_i], h = h_i)
+  
+  # Hitung MAPE bandingkan dengan data aktual test$AQI[1:h_i]
+  mape_val <- MAPE(fore_temp$forecasts, test$AQI[1:h_i])
+  
+  eval_koyck <- rbind(eval_koyck, data.frame(
+    h = h_i,
+    MAPE_Koyck = mape_val
+  ))
+}
+
+# Tampilkan tabel evaluasi
+print(eval_koyck)
+```
+
+```{r}
+coefs <- coef(model.koyck)
+
+# Ambil lambda yang benar (koefisien Y.1)
+lambda_est <- as.numeric(coefs["Y.1"]) 
+
+# Hitung ulang Mean & Median Lag
+mean_lag <- lambda_est / (1 - lambda_est)
+median_lag <- -log(2) / log(lambda_est)
+
+cat("Nilai Lambda Asli (Peluruhan):", lambda_est, "\n")
+cat("Mean Lag:", mean_lag, "hari\n")
+cat("Median Lag (Half-life):", median_lag, "hari\n")
+```
+
+
+### DLM
+```{r}
+finiteDLMauto(x = train$pm10, y = train$AQI,
+                           q.min = 1, q.max = 10,
+                           model.type = "dlm", 
+                           error.type = "AIC", 
+                           trace = TRUE)
+```
+
+
+
+```{r}
+# 1. Kunci Horizon Peramalan sepanjang seluruh data test (h = 14)
+h_val <- nrow(test) # 72 - 58 = 14 observasi
+
+# Dataframe untuk menampung log hasil evaluasi
+hasil_eval_h14 <- data.frame(
+  q = integer(),
+  AIC = numeric(),
+  MAPE_test_h14 = numeric()
+)
+
+# 2. Looping evaluasi dari q = 1 sampai 10
+for (q_i in 1:10) {
+  
+  # Fit Model DLM dengan lag q_i
+  model_temp <- dlm(x = train$pm10, y = train$AQI, q = q_i)
+  
+  # Ambil AIC (Catatan: Sampel internal OLS disesuaikan oleh paket dLagM)
+  aic_val <- AIC(model_temp$model)
+  
+  # Menyiapkan input x_test agar mencakup buffer lag historis (q_i) + horizon peramalan (h_val)
+  # Ini mencegah 'sliding window alignment bug' di dLagM
+  x_input <- c(train$pm10[(nrow(train) - q_i + 1):nrow(train)], test$pm10)
+  
+  # Forecast h_val (14 langkah) ke depan
+  fore_temp <- forecast(model = model_temp, x = x_input, h = h_val)
+  
+  # Hitung MAPE untuk seluruh 14 titik data test (Y_59 hingga Y_72)
+  mape_val <- MAPE(fore_temp$forecasts[1:h_val], test$AQI[1:h_val])
+  
+  # Simpan hasil
+  hasil_eval_h14 <- rbind(hasil_eval_h14, data.frame(
+    q = q_i,
+    AIC = aic_val,
+    MAPE_test_h14 = mape_val
+  ))
+}
+
+# Tampilkan hasil
+print(hasil_eval_h14)
+```
+
+Meskipun secara empiris $q=10$ menghasilkan MAPE terendah pada $h=14$, penggunaan $q$ yang besar ($q=10$) pada ukuran sampel $N=58$ menghabiskan $11$ derajat bebas ($18.9\%$ dari total data). Hal ini berisiko menyebabkan overfitting jika dievaluasi pada horizon peramalan yang lebih panjang.
+Akan dipilih q = 6 karena q tidak terlalu tinggi, q <= sqrt(N), dan q = 6 adalah titik terakhir sebelum ada lonjakan MAPE. 
+
+
+### ARDL
+```{r}
+model.ardl <- ardlDlm(formula = AQI ~ pm10, data = train, p = 1, q = 1)
+summary(model.ardl)
+
+model.ardl.opt <- ardlBoundOrders(
+  data = data.frame(train), 
+  ic = "AIC", 
+  formula = AQI ~ pm10
+)
+
+min_p <- c()
+for (i in 1:6) {
+  min_p[i] <- min(model.ardl.opt$Stat.table[[i]], na.rm = TRUE)
+}
+
+# q_opt: Lag optimum untuk Y (AQI)
+# p_opt: Lag optimum untuk X (pm10)
+q_opt <- which(min_p == min(min_p, na.rm = TRUE))
+p_opt <- which(model.ardl.opt$Stat.table[[q_opt]] == min(model.ardl.opt$Stat.table[[q_opt]], na.rm = TRUE))
+
+data.frame("Lag_Y_opt(q)" = q_opt, "Lag_X_opt(p)" = p_opt, "AIC" = model.ardl.opt$min.Stat)
+```
+Hasil ARDL DLM menunjukkan lag x optimum ketika q = 3 dan lag x optimum ketika p = 12. Namun, p = 12 menggunakan terlalu banyak data sehingga df berkurang. Berikutnya, akan dicari kembali dengan restriksi p dan q maksimal 7.
+
+```{r}
+
+# Kita set rentang pencarian yang masuk akal (fair)
+max_p <- 7  # Lag X (pm10)
+max_q <- 7  # Lag Y (AQI)
+
+grid_results <- data.frame(
+  p = integer(),
+  q = integer(),
+  AIC = numeric(),
+  MAPE_test_h5 = numeric()
+)
+
+# Loop Grid Search 2D
+for (p_i in 1:max_p) {
+  for (q_i in 1:max_q) {
+    
+    # Fit ARDL dengan lag p_i dan q_i
+    # Note: tryCatch buat jaga-jaga kalau ada kombinasi lag yang singulair/OLS error
+    model_temp <- tryCatch({
+      ardlDlm(formula = AQI ~ pm10, data = train, p = p_i, q = q_i)
+    }, error = function(e) NULL)
+    
+    if (!is.null(model_temp)) {
+      # Hitung AIC
+      aic_val <- AIC(model_temp$model)
+      
+      # Forecast h = 5
+      fore_temp <- forecast(model = model_temp, x = test$pm10[1:5], h = 5)
+      mape_val <- MAPE(fore_temp$forecasts, test$AQI[1:5])
+      
+      grid_results <- rbind(grid_results, data.frame(
+        p = p_i,
+        q = q_i,
+        AIC = aic_val,
+        MAPE_test_h5 = mape_val
+      ))
+    }
+  }
+}
+
+# Urutkan berdasarkan AIC terkecil
+grid_sorted_aic <- grid_results[order(grid_results$AIC), ]
+
+cat("--- HASIL GRID SEARCH ARDL (SORTED BY AIC) ---\n")
+print(head(grid_sorted_aic, 8))
+
+# Urutkan berdasarkan MAPE terkecil (Out-of-sample performance)
+grid_sorted_mape <- grid_results[order(grid_results$MAPE_test_h5), ]
+
+cat("\n--- HASIL GRID SEARCH ARDL (SORTED BY MAPE h=5) ---\n")
+print(head(grid_sorted_mape, 8))
+```
+p = 6, q = 2 memiliki ranking performa yang cukup konsisten, baik dari MAPE maupun AIC.
+
+
+### Perbandingan Performa Model
+```{r}
+model.koyck <- koyckDlm(x = train$pm10, y = train$AQI)
+model.dlm.q6 <- dlm(formula = AQI ~ pm10, data = train, q = 6)
+model.ardl.p6q2 <- ardlDlm(formula = AQI ~ pm10, data = train, p = 6, q = 2)
+
+fore.koyck <- forecast(model = model.koyck, x = test$pm10[1:5], h = 5)
+fore.dlm   <- forecast(model = model.dlm.q6, x = test$pm10[1:5], h = 5)
+fore.ardl  <- forecast(model = model.ardl.p6q2, x = test$pm10[1:5], h = 5)
+
+mape.koyck <- MAPE(fore.koyck$forecasts, test$AQI[1:5])
+mape.dlm   <- MAPE(fore.dlm$forecasts, test$AQI[1:5])
+mape.ardl  <- MAPE(fore.ardl$forecasts, test$AQI[1:5])
+
+akurasi <- matrix(
+  c(mape.koyck, mape.dlm, mape.ardl),
+  ncol = 1
+)
+
+rownames(akurasi) <- c("Koyck", "DLM (q = 6)", "ARDL (p = 6, q = 2)")
+colnames(akurasi) <- c("MAPE (h = 5)")
+
+# Tampilkan Hasil
+print(round(akurasi, 4))
+```
+
+```{r}
+par(mfrow=c(1,1))
+plot(test$pm10[1:5], test$AQI[1:5], type="b", col="black", ylim=c(min(test$AQI[1:5], fore.koyck$forecasts, fore.dlm$forecasts, fore.ardl$forecasts) - 5, 
+                                                                  max(test$AQI[1:5], fore.koyck$forecasts, fore.dlm$forecasts, fore.ardl$forecasts) + 5), lwd=2, 
+     ylab="AQI", xlab="PM10", main="Perbandingan Model Peramalan")
+
+lines(test$pm10[1:5], fore.koyck$forecasts, col="red", type="b", pch=16)
+lines(test$pm10[1:5], fore.dlm$forecasts, col="blue", type="b", pch=17)
+lines(test$pm10[1:5], fore.ardl$forecasts, col="green", type="b", pch=18)
+
+legend("topleft", legend=c("Aktual", "Koyck", "DLM (q=6)", "ARDL (6,2)"),
+       col=c("black","red","blue","green"), lty=1, pch=c(1,16,17,18), cex=0.8, inset=0.02)
+```
+
