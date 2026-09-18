@@ -1,0 +1,316 @@
+---
+title: "Prak4"
+author: "Siti Zahra Muthmainnah"
+date: "2026-09-19"
+output:
+  html_document: 
+    theme: lumen
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    code_folding: hide
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## MA(2)
+theta_1 = 0.4, theta_2 = 0.6, n = 300
+### Pembangkitan Model
+```{r}
+#Manual
+set.seed(2048)
+wn <- rnorm(300)
+ma = numeric(300)
+ma[1] = wn[1]
+ma[2] = wn[2] + 0.4*wn[1]
+for(i in 3:300) ma[i] = wn[i] + 0.4*wn[i-1] + 0.6*wn[i-2]
+#ma
+
+#Fungsi arima.sim()
+ma_sim = arima.sim(list(order = c(0, 0, 2), ma = c(0.4, 0.6)), n = 300)
+```
+
+### Plot
+```{r}
+#Plot Time Series
+ts.plot(ma)
+```
+Data stasioner karena tidak membentuk tren
+```{r}
+#Plot ACF
+acf(ma, lag.max = 20)
+```
+ACF cuts off di lag ke-2.
+
+```{r}
+#Plot PACF
+pacf(ma)
+```
+PACF cenderung tails off dan membentuk gelombang sinus.
+
+```{r}
+#Plot EACF
+TSA::eacf(ma)
+```
+Segitiga nol berada pada ordo AR(0) dan MA(2)
+
+Kesimpulan: data stasioner.
+
+### Scatter Plot Antarlag
+```{r}
+#Y_t thd Y_{t-1}
+yt_ma = ma[-1]
+yt_1_ma = ma[-300]
+plot(y = yt_ma, x=yt_1_ma)
+cor(yt_ma,yt_1_ma)
+```
+
+```{r}
+#Y_t thd Y_{t-2}
+yt_2 = ma[-c(1,2)]
+yt_2_ma = ma[-c(299, 300)]
+plot(y=yt_2, x = yt_2_ma)
+cor(yt_2,yt_2_ma)
+```
+
+```{r}
+#Y_t thd Y_{t-3}
+yt_3 = ma[-c(1, 2, 3)]
+yt_3_ma = ma[-c(300, 299, 298)]
+plot(y = yt_3, x = yt_3_ma)
+cor(yt_3,yt_3_ma)
+
+```
+Y_t masih memiliki korelasi sedang dengan Y_{t-1} dan Y_{t-2}, tetapi memiliki korelasi yang sangat lemah dengan Y_{t-3. Hal ini sesuai dengan harapan karena sejak awal, data yang dibangkitkan adalah data AR(2).
+
+### Korelasi Teoretis dan Data
+```{r}
+var_teoritis <- 1 + (0.4)^2 + (0.6)^2
+
+# Autokovarians
+gamma_1 <- (0.4 + 0.4 * 0.6) # 0.4 + 0.24 = 0.64
+gamma_2 <- 0.6                      # 0.6
+
+# Autokorelasi Teoritis (rho_k = gamma_k / gamma_0)
+rho_teoritis <- c(
+  rho_1 = gamma_1 / var_teoritis, # 0.64 / 1.52 ≈ 0.42105
+  rho_2 = gamma_2 / var_teoritis, # 0.60 / 1.52 ≈ 0.39474
+  rho_3 = 0                       # Untuk k >= 3, rho_k = 0
+)
+
+acf_calc <- acf(ma, lag.max = 3, plot = FALSE)
+rho_sampel <- acf_calc$acf[2:4] # Ambil lag 1, 2, dan 3
+
+# Menampilkan Hasil Perbandingan
+tabel_korelasi <- data.frame(
+  Lag = 1:3,
+  Teoritis = round(rho_teoritis, 5),
+  Sampel_Bangkitan = round(as.vector(rho_sampel), 5)
+)
+print(tabel_korelasi)
+```
+Nilai korelasi teoretis dengan sampel bangkitan mirip.
+
+
+## AR(2)
+theta_1 = 0.4, theta_2 = 0.6, n = 300
+### Pembangkitan Model
+```{r}
+phi1 = 0.5
+phi2 = 0.2
+n = 300
+#Manual
+set.seed(2048)
+ar = numeric(n)
+ar[1] = wn[1]
+ar[2] = phi1*ar[1] + wn[2]
+for(i in 3:n) ar[i] = wn[i] + phi1*ar[i-1] + phi2*ar[i-2]
+#ar
+
+#Fungsi arima.sim()
+ar_sim = arima.sim(list(order = c(2, 0, 0), ar = c(phi1, phi2)), n = 300)
+```
+
+### Plot
+```{r}
+#Plot Time Series
+ts.plot(ar)
+```
+Stasioner karena tidak membentuk tren tertentu.
+
+```{r}
+#Plot ACF
+acf(ar)
+```
+Plot ACF cenderung tails off dan cenderung membentuk pola sinusoidal.
+
+```{r}
+#Plot PACF
+pacf(ar)
+```
+Cutoff di lag 2
+
+```{r}
+#Plot EACF
+TSA::eacf(ar)
+```
+AR(2), MA(0)
+
+### Scatter Plot Antarlag
+```{r}
+#Y_t thd Y_{t-1}
+yt_ar = ar[-1]
+yt_1_ar = ar[-300]
+plot(y = yt_ar, x=yt_1_ar)
+cor(yt_ar,yt_1_ar)
+```
+
+```{r}
+#Y_t thd Y_{t-2}
+yt_2 = ar[-c(1,2)]
+yt_2_ar = ar[-c(299, 300)]
+plot(y=yt_2, x = yt_2_ar)
+cor(yt_2,yt_2_ar)
+```
+
+```{r}
+#Y_t thd Y_{t-3}
+yt_3 = ar[-c(1,2,3)]
+yt_3_ar = ar[-c(298, 299, 300)]
+plot(y=yt_3, x = yt_3_ar)
+cor(yt_3,yt_3_ar)
+```
+Nilai korelasi Y_t terhadap Y_{t-3} jauh lebih kecil dibanding Y_t terhadap Y_{t-1} dan Y_t terhadap Y_{t-2}. Hal ini sesuai dengan teori karena data yang dibangkitkan adalah AR(2)
+
+
+```{r}
+rho_teoritis_manual <- numeric(3)
+
+# Base Case Yule-Walker
+rho_teoritis_manual[1] <- phi1 / (1 - phi2)                  # Lag 1: 0.5 / 0.8 = 0.625
+rho_teoritis_manual[2] <- phi1 * rho_teoritis_manual[1] + phi2 # Lag 2: (0.5 * 0.625) + 0.2 = 0.5125
+rho_teoritis_manual[3] <- phi1 * rho_teoritis_manual[2] + phi2 * rho_teoritis_manual[1] # Lag 3: (0.5 * 0.5125) + (0.2 * 0.625) = 0.38125
+
+names(rho_teoritis_manual) <- c("Lag 1", "Lag 2", "Lag 3")
+
+
+rho_sampel <- c(0.6082075, 0.5086710, 0.3714899)
+
+tabel_evaluasi <- data.frame(
+  Lag = 1:3,
+  Teoritis_YuleWalker = round(rho_teoritis_manual, 5),
+  Hasil_Simulasi = round(rho_sampel, 5)
+)
+
+print(tabel_evaluasi)
+```
+Nilai korelasi teoretis dengan sampel bangkitan mirip.
+
+## ARMA(2, 2)
+### Pembangkitan Model
+```{r}
+set.seed(2048)
+n <- 300
+
+phi1 <- 0.5
+phi2 <- 0.2
+theta1 <- 0.4
+theta2 <- 0.6
+
+wn <- rnorm(n, mean = 0, sd = 1)
+
+arma <- numeric(n)
+arma[1] <- wn[1]
+
+arma[2] <- (phi1 * arma[1]) + wn[2] + (theta1 * wn[1])
+
+for (i in 3:n) 
+  arma[i] <- (phi1 * arma[i-1]) + (phi2 * arma[i-2]) + wn[i] + (theta1 * wn[i-1]) + (theta2 * wn[i-2])
+#arma
+
+# ==============================================================================
+# 2. Pembangkitan Otomatis (arima.sim)
+# ==============================================================================
+# Di arima.sim, order = c(p, d, q) -> ARMA(2,0,2) alias order = c(2, 0, 2)
+# Parameter 'ar' diisi vector c(phi1, phi2)
+# Parameter 'ma' diisi vector c(theta1, theta2)
+
+arma_sim <- arima.sim(
+  model = list(
+    order = c(2, 0, 2), 
+    ar = c(phi1, phi2), 
+    ma = c(theta1, theta2)
+  ), 
+  n = n
+)
+#arma_sim
+```
+
+### Plot
+```{r}
+layout(matrix(c(1, 2, 
+                3, 3), nrow = 2, byrow = TRUE))
+plot.ts(arma, main = "Time Series Plot ARMA(2,2)", ylab = "Y_t", col = "darkblue")
+acf(arma, main = "Plot ACF ARMA(2,2)")
+pacf(arma, main = "Plot PACF ARMA(2,2)")
+par(mfrow = c(1, 1))
+TSA::eacf(arma)
+```
+Stasioner, tail off, ARMa(2, 3). Sesuai teori, tapi MA agak bergeser. Mungkin karena n tidak terlalu besar dan nilai theta yang cukup besar.
+
+### Scatter Plot
+```{r}
+#Y_t thd Y_{t-1}
+yt_arma = arma[-1]
+yt_1_arma = arma[-300]
+plot(y = yt_arma, x=yt_1_arma)
+cor(yt_arma,yt_1_arma)
+```
+
+```{r}
+#Y_t thd Y_{t-2}
+yt_2 = arma[-c(1, 2)]
+yt_2_arma = arma[-c(300, 299)]
+plot(y = yt_2, x=yt_2_arma)
+cor(yt_2, yt_2_arma)
+```
+
+```{r}
+#Y_t thd Y_{t-3}
+yt_3 = arma[-c(1,2,3)]
+yt_3_arma = arma[-c(298, 299, 300)]
+plot(y=yt_3, x = yt_3_arma)
+cor(yt_3,yt_3_arma)
+```
+Nilai korelasinya jatuh jauh di Y_t thd Y_{t-3}. Sesuai teori.
+
+### Korelasi Teoretis dan Data
+```{r}
+yt <- arma
+
+# Lag 1
+rho_sampel_1 <- cor(yt[-1], yt[-n])
+
+# Lag 2
+rho_sampel_2 <- cor(yt[-c(1, 2)], yt[-c(n-1, n)])
+
+# Lag 3
+rho_sampel_3 <- cor(yt[-c(1, 2, 3)], yt[-c(n-2, n-1, n)])
+rho_sampel <- c(rho_sampel_1, rho_sampel_2, rho_sampel_3)
+
+
+rho_teoritis <- ARMAacf(ar = c(phi1, phi2), ma = c(theta1, theta2), lag.max = 3)[2:4]
+
+tabel_hasil <- data.frame(
+  Lag = paste("Lag", 1:3),
+  Teoritis = round(as.numeric(rho_teoritis), 5),
+  Sampel   = round(rho_sampel, 5)
+)
+
+print(tabel_hasil)
+```
+Korelasi teoretis dan sampel sangat mirip.
